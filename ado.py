@@ -27,6 +27,12 @@ class Vertex:
             self.idx = idx
 
     def dist_to(self, v: 'Vertex') -> float:
+        """
+        Compute the distance from this Vertex to another Vertex.
+
+        :param v: The other vertex we are computing the distance to.
+        :return: The distance between this vertex and the other vertex.
+        """
         assert isinstance(v, Vertex)
         return np.sqrt((v.i - self.i) ** 2 + (v.j - self.j) ** 2)
 
@@ -89,9 +95,6 @@ class Graph:
 
         return Graph(vertices_list=random_vertices)
 
-    def as_array(self) -> Tuple[List[float], List[float]]:
-        return [v.i for v in self.vertices], [v.j for v in self.vertices]
-
 
 class ADO:
     """
@@ -122,6 +125,8 @@ class ADO:
         """
         Do all preprocessing on the graph to answer queries.
         Runs in O(n^2) time.
+
+        Saves the required preprocessed data in instance variables.
         """
         # Sample k + 1 sets A_0 through A_k
         A_sets = self.__sample_A_sets()
@@ -232,33 +237,6 @@ class ADO:
             w = self.p[u][i][0]
 
         return self.B[u][w] + self.B[v][w]
-
-    """
-    def estimate(self, x, y):
-
-        plt.figure()
-        plt.scatter(*self.g.as_arr(), c='blue')
-
-        xx = [n.i for n in self.bunches[x]]
-        yy = [n.j for n in self.bunches[x]]
-        plt.scatter(xx, yy, c='black')
-        plt.scatter([x.i], [x.j], c='red')
-
-        for i in range(len(self.p)):
-            plt.scatter([self.p[i][x].i], [self.p[i][x].j], color='green')
-
-        plt.figure()
-        plt.scatter(*self.g.as_arr(), c='blue')
-
-        xx = [n.i for n in self.bunches[y]]
-        yy = [n.j for n in self.bunches[y]]
-        plt.scatter(xx, yy, c='black')
-        plt.scatter([y.i], [y.j], c='red')
-        for i in range(len(self.p)):
-            plt.scatter([self.p[i][y].i], [self.p[i][y].j], color='green')
-
-        plt.show()
-    """
 
     def animate_query(self, u: Vertex, v: Vertex, timestep: float = 2.0) -> \
             None:
