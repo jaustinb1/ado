@@ -1,5 +1,7 @@
+import math
 import random
-from typing import DefaultDict, Dict, List, Optional, Set, Tuple
+from abc import ABC, abstractmethod
+from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from collections import defaultdict
@@ -7,7 +9,23 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 
-class Vertex:
+class Vertex(ABC):
+    """
+    Generalized abstract class representing a vertex (either a point in
+    real space or a node in a graph.
+    """
+
+    @property
+    @abstractmethod
+    def idx(self):
+        return None
+
+    @abstractmethod
+    def __repr__(self):
+        return None
+
+
+class FiniteMetricVertex(Vertex):
     """
     A representation of a single point in a finite metric space.
     """
@@ -23,103 +41,28 @@ class Vertex:
         """
         self.i = np.random.normal(loc=i, scale=stddev)
         self.j = np.random.normal(loc=j, scale=stddev)
-        if idx is not None:
-            self.idx = idx
-
-    def dist_to(self, v: 'Vertex') -> float:
-        """
-        Compute the distance from this Vertex to another Vertex.
-
-        :param v: The other vertex we are computing the distance to.
-        :return: The distance between this vertex and the other vertex.
-        """
-        assert isinstance(v, Vertex)
-        return np.sqrt((v.i - self.i) ** 2 + (v.j - self.j) ** 2)
+        self._idx = idx
 
     def __repr__(self) -> str:
         return "({},{})".format(self.i, self.j)
 
-
-class Graph:
-    """
-    A representation of a graph (collection of Vertices with distances
-    between them) in a finite metric space.
-    """
-
-    def __init__(self, vertices_list: List[Vertex]):
-        """
-        :param vertices_list: A list of points (Vertex objects) to put in the
-        graph.
-        """
-        self.vertices = vertices_list
-
-        # Mark the vertices with their indices for convenience and to
-        # distinguish them in the unlikely case of exact duplicates
-        for i, v in enumerate(self.vertices):
-            v.idx = i
-
-        self.dim = len(vertices_list)
-
-        # Compute finite metric distance matrix (n x n)
-        z = np.array([complex(v.i, v.j) for v in self.vertices])
-        self.distances = abs(z.T - z)
-
-    @staticmethod
-    def create_random_graph(num_vertices: int,
-                            x_range: Tuple[float, float] = (-100, 100),
-                            y_range: Tuple[float, float] = (-100, 100),
-                            seed: int = 0) -> \
-            'Graph':
-        """
-        Construct a graph with num_vertices points by sampling each point
-        uniformly from the provided range of x and y values.
-
-        :param num_vertices: The number of vertices to place in the graph.
-        :param x_range: The range (low, high) of x coordinates to sample
-        points from.
-        :param y_range: The range (low, high) of y coordinates to sample
-        points from.
-        :param seed: The random seed to use for generating the data.
-
-        :return: A Graph object containing num_vertices random points,
-        with the corresponding distance matrix constructed internally.
-        """
-        random.seed(seed)
-        np.random.seed(seed)
-
-        x_coords = [random.uniform(x_range[0], x_range[1]) for _ in range(
-            num_vertices)]
-        y_coords = [random.uniform(y_range[0], y_range[1]) for _ in range(
-            num_vertices)]
-        random_vertices = [Vertex(i, j) for i, j in zip(x_coords, y_coords)]
-
-        return Graph(vertices_list=random_vertices)
+    @property
+    def idx(self):
+        return self._idx
 
 
-class ADO:
-    """
-    An implementation of the approximate distance oracle algorithm/data
-    structure.
-    """
-
-    def __init__(self, graph: Graph, k: int):
-        """
-        :param graph: A Graph object that the ADO will preprocess and
-        answer queries on.
-        :param k: The tunable ADO parameter that controls the data structure
-        size, query runtime, and stretch of the estimates.
-        """
-        self.g = graph
-        self.n = self.g.dim
-        self.k = k
-
-        # These fields are initialized in preprocess below
+class ADO(ABC):
+    def __init__(self, k: int):
         self.A = None
         self.p = None
         self.B = None
+        self.n = None
+        self.k = k
 
-        # Preprocess and construct A, p, B
-        self.preprocess()
+    @property
+    @abstractmethod
+    def vertices(self):
+        pass
 
     def preprocess(self) -> None:
         """
@@ -128,6 +71,7 @@ class ADO:
 
         Saves the required preprocessed data in instance variables.
         """
+
         # Sample k + 1 sets A_0 through A_k
         A_sets = self.__sample_A_sets()
         while not A_sets[self.k - 1]:  # If A_{k-1} is empty, re-sample
@@ -136,10 +80,10 @@ class ADO:
 
         # Compute distances between each point and each set A_i, saving
         # the closest points p_i(v)
-        self.p = self.__compute_p()
+        self.p = self.compute_p()
 
         # Compute a bunch and associated distance table for each vertex
-        self.B = self.__compute_bunches()
+        self.B = self.compute_bunches()
 
     def __sample_A_sets(self) -> List[Set[Vertex]]:
         """
@@ -151,7 +95,7 @@ class ADO:
         is a set of Vertex objects.
         """
         # Add set A_0 = V
-        A_sets = [set(self.g.vertices)]
+        A_sets = [set(self.vertices)]
 
         # Add sets A_1 through A_{k-1} by sampling
         for _ in range(1, self.k):
@@ -164,8 +108,78 @@ class ADO:
 
         return A_sets
 
-    def __compute_p(self) -> DefaultDict[Vertex, Dict[int, Tuple[Vertex,
-                                                                 float]]]:
+    @abstractmethod
+    def compute_p(self) -> DefaultDict[Vertex, Dict[int, Tuple[Vertex,
+                                                               float]]]:
+        pass
+
+    @abstractmethod
+    def compute_bunches(self) -> DefaultDict[Vertex, Dict[Vertex,
+                                                          float]]:
+        pass
+
+    def query(self,
+              u: Vertex,
+              v: Vertex,
+              return_w: bool = False) -> Union[float, Tuple[float, Vertex]]:
+        """
+        Query the ADO for the estimated distance between two vertices u and v.
+
+        :param u: A vertex in the ADO's graph self.g
+        :param v: A different vertex in the ADO's graph self.g
+        :param return_w: If this is True, in addition to the distance, returns
+        the final point w.
+        :return: The estimated distance between u and v, plus optionally the
+        Vertex w if return_w is True.
+        """
+
+        w = u
+        i = 0
+
+        while w not in self.B[v]:
+            i += 1
+            u, v = v, u
+            w = self.p[u][i][0]
+
+        distance = self.B[u][w] + self.B[v][w]
+
+        if return_w:
+            return distance, w
+        else:
+            return distance
+
+
+class PointADO(ADO):
+    """
+    An implementation of the approximate distance oracle algorithm/data
+    structure.
+    """
+
+    def __init__(self, vertices: List[FiniteMetricVertex], k: int):
+        """
+        :param vertices: A list of real 2D points (FiniteMetricVertex objects)
+        that form the graph that ADO will run on.
+        :param k: The tunable ADO parameter that controls the data structure
+        size, query runtime, and stretch of the estimates.
+        """
+        super().__init__(k=k)
+        self._vertices = vertices
+        self.n = len(self.vertices)
+
+        # Preprocess and construct A, p, B
+        self.preprocess()
+
+    @property
+    def vertices(self):
+        return self._vertices
+
+    @staticmethod
+    def distance(u: FiniteMetricVertex, v: FiniteMetricVertex):
+        return math.sqrt((u.i - v.i) ** 2 + (u.j - v.j) ** 2)
+
+    def compute_p(self) -> DefaultDict[Vertex,
+                                       Dict[int, Tuple[Vertex,
+                                                       float]]]:
         """
         Computes the distance from each vertex v to each set A_i, and notes
         the nearest point in A_i to v (p_i(v)).
@@ -178,13 +192,13 @@ class ADO:
 
         # Compute minimum distance from every point v to every set A_i
         # Save the closest point in the set p_i(v) in the dict p_dict
-        for v in self.g.vertices:
+        for v in self.vertices:
             for i, A_i in enumerate(self.A):
                 p_i = None
                 delta = float("inf")
 
                 for u in A_i:
-                    d = v.dist_to(u)
+                    d = self.distance(v, u)
                     if d < delta:
                         p_i = u
                         delta = d
@@ -193,7 +207,8 @@ class ADO:
 
         return p_dict
 
-    def __compute_bunches(self) -> DefaultDict[Vertex, Dict[Vertex, float]]:
+    def compute_bunches(self) -> DefaultDict[Vertex, Dict[Vertex,
+                                                          float]]:
         """
         Computes the bunch B(v) associated with each vertex v and for each
         vertex w in the bunch saves the distance from v to w in a
@@ -205,41 +220,19 @@ class ADO:
         distance(v, w).
         """
         bunches = defaultdict(dict)
-        for v in self.g.vertices:
+        for v in self.vertices:
             for i, A_i in enumerate(self.A[:self.k]):
                 A_i_plus_1 = self.A[i + 1]
                 candidates = A_i.difference(A_i_plus_1)
                 for w in candidates:
-                    d = v.dist_to(w)
+                    d = self.distance(v, w)
                     if d < self.p[v][i + 1][1]:
                         bunches[v][w] = d
 
         return bunches
 
-    def query(self, u: Vertex, v: Vertex) -> float:
-        """
-        Query the ADO for the estimated distance between two vertices u and v.
-
-        :param u: A vertex in the ADO's graph self.g
-        :param v: A different vertex in the ADO's graph self.g
-        :return: The estimated distance between u and v.
-        """
-        # Check that the vertices are actually from this graph
-        assert self.g.vertices[u.idx] == u and self.g.vertices[v.idx] == v, \
-            "The vertices being queried must be in the graph."
-
-        w = u
-        i = 0
-
-        while w not in self.B[v]:
-            i += 1
-            u, v = v, u
-            w = self.p[u][i][0]
-
-        return self.B[u][w] + self.B[v][w]
-
-    def animate_query(self, u: Vertex, v: Vertex, timestep: float = 2.0) -> \
-            None:
+    def animate_query(self, u: FiniteMetricVertex,
+                      v: FiniteMetricVertex, timestep: float = 2.0) -> None:
         """
         Query the ADO for the estimated distance between two vertices u and v
         and animate/plot the process with pyplot.
@@ -249,7 +242,7 @@ class ADO:
         :param timestep: The timestep between frames in the animation
         """
         # Check that the vertices are actually from this graph
-        assert self.g.vertices[u.idx] == u and self.g.vertices[v.idx] == v, \
+        assert self.vertices[u.idx] == u and self.vertices[v.idx] == v, \
             "The vertices being queried must be in the graph."
 
         fig, ax = plt.subplots()
@@ -272,8 +265,8 @@ class ADO:
 
     def __plot_query_state(self, fig: plt.Figure,
                            ax: plt.Axes,
-                           u: Vertex, v: Vertex,
-                           w: Vertex, i: int,
+                           u: FiniteMetricVertex, v: FiniteMetricVertex,
+                           w: FiniteMetricVertex, i: int,
                            final: bool = False) -> None:
         """
         Plot a single frame/plot that depicts the current state of the ADO
@@ -293,8 +286,8 @@ class ADO:
         ax.cla()
 
         # Plot all the points in the graph
-        ax.scatter([v.i for v in self.g.vertices],
-                   [v.j for v in self.g.vertices],
+        ax.scatter([v.i for v in self.vertices],
+                   [v.j for v in self.vertices],
                    s=4,
                    color="black",
                    marker=".",
@@ -361,12 +354,43 @@ class ADO:
         fig.show()
 
 
+def sample_random_real_points(num_vertices: int,
+                              x_range: Tuple[float, float] = (-100, 100),
+                              y_range: Tuple[float, float] = (-100, 100),
+                              seed: int = 0) -> List[FiniteMetricVertex]:
+    """
+    Construct a graph with num_vertices points by sampling each point
+    uniformly from the provided range of x and y values.
+
+    :param num_vertices: The number of vertices to place in the graph.
+    :param x_range: The range (low, high) of x coordinates to sample
+    points from.
+    :param y_range: The range (low, high) of y coordinates to sample
+    points from.
+    :param seed: The random seed to use for generating the data.
+
+    :return: A Graph object containing num_vertices random points,
+    with the corresponding distance matrix constructed internally.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+
+    x_coords = [random.uniform(x_range[0], x_range[1]) for _ in range(
+        num_vertices)]
+    y_coords = [random.uniform(y_range[0], y_range[1]) for _ in range(
+        num_vertices)]
+    random_vertices = [FiniteMetricVertex(i, j, idx=n) for n, (i,
+                                                               j) in enumerate(
+        zip(x_coords, y_coords))]
+
+    return random_vertices
+
+
 if __name__ == "__main__":
-    g = Graph.create_random_graph(
+    points = sample_random_real_points(
         num_vertices=250,
         x_range=(-50, 50),
         y_range=(-50, 50),
-        seed=1
-    )
-    a = ADO(g, 5)
-    a.animate_query(g.vertices[0], g.vertices[10])
+        seed=1)
+    point_ado = PointADO(points, 5)
+    point_ado.animate_query(point_ado.vertices[0], point_ado.vertices[10])
