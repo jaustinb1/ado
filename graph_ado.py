@@ -166,6 +166,7 @@ class GraphADO(ADO):
         p_dict = defaultdict(dict)
         # We record the previous distance delta(A_{i+1}, v) for use in checking
         # the condition on pg. 16 in the paper
+        self.C = defaultdict(lambda: {})
 
         for i in range(self.k - 1, -1, -1):
             # d(A_{i+1}, v) for all v
@@ -198,7 +199,6 @@ class GraphADO(ADO):
             # Compute clusters C(w) and corresponding shortest path
             # trees T(w) in the form of a saved shortest path from each
             # w to each vertex in C(w)
-            self.C = {}
             for w in self.A[i].difference(self.A[i + 1]):
                 # Do a modified Dijkstra's with the stricter relaxation
                 # condition
@@ -209,9 +209,9 @@ class GraphADO(ADO):
                     w,
                     delta_A_i_plus_1_v
                 )
-                self.C[w] = {
+                self.C[w].update({
                     v: (C_distances[v], C_paths[v]) for v in C_distances
-                }
+                })
 
         return p_dict
 
@@ -229,7 +229,7 @@ class GraphADO(ADO):
         """
         bunches = defaultdict(dict)
         for v in self.vertices:
-            for w in self.C:
+            for w in self.vertices:
                 if v in self.C[w]:
                     bunches[v][w] = self.C[w][v][0]
 
@@ -265,7 +265,7 @@ class GraphADO(ADO):
         if path[0] == v:
             path.reverse()
 
-        assert path[0] == u and path[-1] == v and w in path
+        #assert path[0] == u and path[-1] == v and w in path
         return path
 
     def query_for_path(self, u: Vertex, v: Vertex) -> List[Vertex]:
@@ -294,7 +294,7 @@ class GraphADO(ADO):
         self.__plot_query_state(fig, ax, u, v, w, i)
         plt.pause(timestep)
 
-        """
+
         while w not in self.B[v]:
             i += 1
             u, v = v, u
@@ -304,7 +304,7 @@ class GraphADO(ADO):
             plt.pause(timestep)
 
         self.__plot_query_state(fig, ax, u, v, w, i, final=True)
-        """
+
 
     def __plot_query_state(self,
                            fig: plt.Figure,
