@@ -256,6 +256,9 @@ class PointADO(ADO):
         self.__plot_p_i(fig, ax, u)
         fig, ax = plt.subplots()
 
+        self.__plot_bunches(fig, ax, u)
+        fig, ax = plt.subplots()
+
         w = u
         i = 0
 
@@ -310,10 +313,41 @@ class PointADO(ADO):
             ax.add_patch(circ)
 
         plt.legend()
-        plt.show()
+        #plt.show()
 
     def __plot_bunches(self, fig: plt.Figure, ax: plt.Axes, u: FiniteMetricVertex):
-        pass
+        # Plot all the points in the graph
+        for i, a_i in enumerate(self.A):
+            ax.scatter(
+                [v.i for v in a_i],
+                [v.j for v in a_i],
+                label="A_{}".format(i)
+            )
+
+        ax.scatter([u.i], [u.j], color='red', label='u')
+
+        for i, p_i in self.p[u].items():
+            if p_i[0] is None:
+                continue
+
+            w = p_i[0]
+            d = p_i[1]
+
+            ax.scatter([w.i], [w.j], label='p_{}(u)'.format(i))
+
+            circ = plt.Circle((u.i, u.j), d, fill=False)
+
+            ax.add_patch(circ)
+
+
+        ax.scatter(
+            [v.i for v in self.B[u]],
+            [v.j for v in self.B[u]],
+            label='B(u)', color='black'
+        )
+
+        plt.legend()
+        plt.show()
 
 
     def __plot_query_state(self, fig: plt.Figure,
