@@ -284,8 +284,10 @@ class PointADO(ADO):
                 label="A_{}".format(i)
             )
 
-        plt.legend()
-        #plt.show()
+        plt.legend(loc=(1.04, 0))
+        ax.set_title("A_i")
+        plt.savefig("partitions.png", bbox_inches="tight")
+
 
     def __plot_p_i(self, fig: plt.Figure, ax: plt.Axes, u: FiniteMetricVertex):
 
@@ -312,8 +314,9 @@ class PointADO(ADO):
 
             ax.add_patch(circ)
 
-        plt.legend()
-        #plt.show()
+        plt.legend(loc=(1.04, 0))
+        ax.set_title("p_i(u)")
+        plt.savefig("witnesses.png", bbox_inches="tight")
 
     def __plot_bunches(self, fig: plt.Figure, ax: plt.Axes, u: FiniteMetricVertex):
         # Plot all the points in the graph
@@ -339,14 +342,16 @@ class PointADO(ADO):
 
             ax.add_patch(circ)
 
-
         ax.scatter(
             [v.i for v in self.B[u]],
             [v.j for v in self.B[u]],
             label='B(u)', color='black'
         )
 
-        plt.legend()
+        plt.legend(loc=(1.04, 0))
+        ax.set_title("B(u)")
+
+        plt.savefig("bunches.png", bbox_inches="tight")
         plt.show()
 
 
