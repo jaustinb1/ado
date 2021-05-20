@@ -7,6 +7,9 @@ import numpy as np
 from collections import defaultdict
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+import argparse
+import time
+from tqdm import tqdm
 
 
 class Vertex(ABC):
@@ -234,6 +237,26 @@ class PointADO(ADO):
 
         return bunches
 
+    def random_query(self):
+
+        u = self.vertices[0] #np.random.choice(self.vertices)
+        v = self.vertices[-1] #np.random.choice(self.vertices)
+
+        return self.query(u, v)
+
+
+    def query(self, u: FiniteMetricVertex, v: FiniteMetricVertex):
+        w = u
+        i = 0
+
+        while w not in self.B[v]:
+            i += 1
+            u, v = v, u
+            w = self.p[u][i][0]
+
+        return self.distance(u, w) + self.distance(w, v)
+
+
     def animate_query(self, u: FiniteMetricVertex,
                       v: FiniteMetricVertex, timestep: float = 2.0) -> None:
         """
@@ -250,13 +273,15 @@ class PointADO(ADO):
 
         fig, ax = plt.subplots()
 
-        self.__plot_A_i(fig, ax)
-        fig, ax = plt.subplots()
+        #self.__plot_A_i(fig, ax)
+        #fig, ax = plt.subplots()
 
-        self.__plot_p_i(fig, ax, u)
-        fig, ax = plt.subplots()
+        #self.__plot_p_i(fig, ax, u)
+        #fig, ax = plt.subplots()
 
         self.__plot_bunches(fig, ax, u)
+        fig, ax = plt.subplots()
+        self.__plot_bunches(fig, ax, v)
         fig, ax = plt.subplots()
 
         w = u
@@ -352,7 +377,7 @@ class PointADO(ADO):
         ax.set_title("B(u)")
 
         plt.savefig("bunches.png", bbox_inches="tight")
-        plt.show()
+        #plt.show()
 
 
     def __plot_query_state(self, fig: plt.Figure,
@@ -479,10 +504,89 @@ def sample_random_real_points(num_vertices: int,
 
 
 if __name__ == "__main__":
-    points = sample_random_real_points(
-        num_vertices=250,
-        x_range=(-50, 50),
-        y_range=(-50, 50),
-        seed=1)
-    point_ado = PointADO(points, 5)
-    point_ado.animate_query(point_ado.vertices[0], point_ado.vertices[10])
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--runtime_test", action='store_true')
+    parser.add_argument("--num_vertices", type=int, default=250)
+    parser.add_argument("--k", type=int, default=5)
+    parser.add_argument("--seed", type=int, default=1)
+
+    args = parser.parse_args()
+
+    if args.runtime_test:
+
+        for k in range(1, args.k+1):
+            times_preproc = []
+            times_query = []
+            num_pts = []
+            for i in tqdm(range(10, args.num_vertices, 4)):
+                points = sample_random_real_points(
+                    num_vertices=i,
+                    x_range=(-50, 50),
+                    y_range=(-50, 50),
+                    seed=args.seed)
+                start = time.time()
+                point_ado = PointADO(points, k)
+                times_preproc.append(time.time() - start)
+                num_pts.append(i)
+
+                #start = time.time()
+                #for _ in range(100):
+                #    _ = point_ado.random_query()
+                #times_query.append((time.time() - start) / 100.)
+
+            #plt.scatter(num_pts, times_preproc, s=3)
+
+
+            fit = np.polyfit(num_pts, times_preproc, 2)
+            best_fit = np.poly1d(fit)
+
+            yhat = best_fit(num_pts)
+            ybar = np.mean(times_preproc)
+            ssreg = np.sum((yhat-ybar)**2)
+            sstot = np.sum((times_preproc - ybar)**2)
+            r2 = ssreg / sstot
+            print("R Squared Value Preprocess: {}".format(r2))
+            print(fit)
+            plt.plot(num_pts, best_fit(num_pts), label="k={}".format(k))
+
+        plt.legend()
+        plt.title("Preprocessing runtimes for different numbers of points")
+        plt.show()
+
+        #plt.scatter(num_pts, times_query)
+
+
+        #plt.title("Query runtimes for different numbers of points")
+        #plt.show()
+
+    else:
+        num_graphs = 0
+        max_stretch = 0
+        while True:
+            num_graphs += 1
+            points = sample_random_real_points(
+                num_vertices=args.num_vertices,
+                x_range=(-50, 50),
+                y_range=(-50, 50),
+                seed=args.seed)
+            point_ado = PointADO(points, args.k)
+
+            for ii in range(args.num_vertices):
+                for jj in range(args.num_vertices):
+                    if ii == jj:
+                        continue
+                    res = point_ado.query(point_ado.vertices[ii], point_ado.vertices[jj])
+                    truth = point_ado.distance(point_ado.vertices[ii], point_ado.vertices[jj])
+
+                    stretch = res / truth
+
+                    if stretch > max_stretch:
+                        plt.close('all')
+                        max_stretch = stretch
+                        print(stretch, num_graphs)
+                        point_ado.animate_query(point_ado.vertices[ii], point_ado.vertices[jj])
+
+                        if stretch >= 2. * args.k - 1.0 - 0.01:
+                            while True:
+                                plt.draw()
+                                plt.pause(0.01)
