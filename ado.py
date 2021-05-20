@@ -1,11 +1,12 @@
 import math
 import random
 from abc import ABC, abstractmethod
-from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple, Union
+from typing import DefaultDict, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from collections import defaultdict
 import matplotlib.pyplot as plt
+from matplotlib.cm import get_cmap
 from matplotlib.lines import Line2D
 
 
@@ -18,11 +19,14 @@ class Vertex(ABC):
     @property
     @abstractmethod
     def idx(self):
-        return None
+        """
+        Index of the point in its enclosing graph to uniquely identify it.
+        """
+        pass
 
     @abstractmethod
     def __repr__(self):
-        return None
+        pass
 
 
 class FiniteMetricVertex(Vertex):
@@ -33,11 +37,11 @@ class FiniteMetricVertex(Vertex):
     def __init__(self, i: float, j: float, stddev: float = 0.1,
                  idx: Optional[int] = None):
         """
-        :param i: The x-coordinate (mean) of the point
-        :param j: The y-coordinate (mean) of the point
+        :param i: The x-coordinate (mean) of the point.
+        :param j: The y-coordinate (mean) of the point.
         :param stddev: Standard deviation of the normal distribution the
-        point is sampled from
-        :param idx: (Optional) Index of the point in the graph for bookkeeping
+        point is sampled from.
+        :param idx: (Optional) Index of the point in the graph for bookkeeping.
         """
         self.i = np.random.normal(loc=i, scale=stddev)
         self.j = np.random.normal(loc=j, scale=stddev)
@@ -52,12 +56,24 @@ class FiniteMetricVertex(Vertex):
 
 
 class ADO(ABC):
-    def __init__(self, k: int):
+    """
+    Abstract class representing a general approximate distance oracle (ADO)
+    implementation.
+
+    Actual ADO implementations are concrete classes inheriting from this class.
+    """
+
+    def __init__(self, k: int, seed: Optional[int] = None):
+        # All variables are from the paper, see method docstrings
+        # for detailed descriptions
         self.A = None
         self.p = None
         self.B = None
         self.n = None
         self.k = k
+        self.seed = seed
+        if self.seed:
+            random.seed(self.seed)
 
     @property
     @abstractmethod
@@ -99,7 +115,17 @@ class ADO(ABC):
 
         # Add sets A_1 through A_{k-1} by sampling
         for _ in range(1, self.k):
-            vertices = set([v for v in A_sets[-1]
+            # If we are seeding, we fix the order of set iteration by sorting
+            # and then shuffling. This ensures that the entire sampling process
+            # is fully deterministic.
+            # This also adds an O(n log n) contribution to the runtime,
+            # so it should be disabled for accurate runtime measurements
+            if self.seed:
+                A_prev = list(sorted(A_sets[-1], key=lambda v: v.idx))
+                random.shuffle(A_prev)
+            else:
+                A_prev = A_sets[-1]
+            vertices = set([v for v in A_prev
                             if random.random() < (self.n ** (-1. / self.k))])
             A_sets.append(vertices)
 
@@ -130,7 +156,7 @@ class ADO(ABC):
         :param return_w: If this is True, in addition to the distance, returns
         the final point w.
         :return: The estimated distance between u and v, plus optionally the
-        Vertex w if return_w is True.
+        final Vertex w if return_w is True.
         """
 
         w = u
@@ -152,17 +178,18 @@ class ADO(ABC):
 class PointADO(ADO):
     """
     An implementation of the approximate distance oracle algorithm/data
-    structure.
+    structure on 2D points.
     """
 
-    def __init__(self, vertices: List[FiniteMetricVertex], k: int):
+    def __init__(self, vertices: List[FiniteMetricVertex], k: int,
+                 seed: Optional[int] = None):
         """
         :param vertices: A list of real 2D points (FiniteMetricVertex objects)
         that form the graph that ADO will run on.
         :param k: The tunable ADO parameter that controls the data structure
         size, query runtime, and stretch of the estimates.
         """
-        super().__init__(k=k)
+        super().__init__(k=k, seed=seed)
         self._vertices = vertices
         self.n = len(self.vertices)
 
@@ -193,20 +220,17 @@ class PointADO(ADO):
         # Compute minimum distance from every point v to every set A_i
         # Save the closest point in the set p_i(v) in the dict p_dict
         for v in self.vertices:
-            for i, A_i in enumerate(self.A):
-                p_i = None
-                delta = float("inf")
+            for i in range(self.k + 1):
+                p_i_v = None
+                d_v_Ai = float("inf")
 
-                for u in A_i:
-                    if u == v:
-                        continue
+                for w in self.A[i]:
+                    d_w_v = self.distance(w, v)
+                    if d_w_v < d_v_Ai:
+                        p_i_v = w
+                        d_v_Ai = d_w_v
 
-                    d = self.distance(v, u)
-                    if d < delta:
-                        p_i = u
-                        delta = d
-
-                p_dict[v][i] = (p_i, delta)
+                p_dict[v][i] = (p_i_v, d_v_Ai)
 
         return p_dict
 
@@ -224,18 +248,19 @@ class PointADO(ADO):
         """
         bunches = defaultdict(dict)
         for v in self.vertices:
-            for i, A_i in enumerate(self.A[:self.k]):
-                A_i_plus_1 = self.A[i + 1]
-                candidates = A_i.difference(A_i_plus_1)
-                for w in candidates:
-                    d = self.distance(v, w)
-                    if d < self.p[v][i + 1][1]:
-                        bunches[v][w] = d
+            for i in range(self.k):
+                for w in (self.A[i]).difference(self.A[i + 1]):
+                    d_v_w = self.distance(v, w)
+                    d_v_A_i_plus_1 = self.p[v][i + 1][1]
+                    if d_v_w < d_v_A_i_plus_1:
+                        bunches[v][w] = d_v_w
 
         return bunches
 
     def animate_query(self, u: FiniteMetricVertex,
-                      v: FiniteMetricVertex, timestep: float = 2.0) -> None:
+                      v: FiniteMetricVertex, timestep: float = 2.0,
+                      save: bool = False) -> \
+            None:
         """
         Query the ADO for the estimated distance between two vertices u and v
         and animate/plot the process with pyplot.
@@ -250,19 +275,37 @@ class PointADO(ADO):
 
         fig, ax = plt.subplots()
 
+        # Plot preprocessing data
         self.__plot_A_i(fig, ax)
-        fig, ax = plt.subplots()
+        if save:
+            fig.savefig('A_i.png')
+        plt.pause(timestep)
 
-        self.__plot_p_i(fig, ax, u)
-        fig, ax = plt.subplots()
+        self.__plot_p_i(fig, ax, u, name="u")
+        if save:
+            fig.savefig('p_i_u.png')
+        plt.pause(timestep)
+        self.__plot_p_i(fig, ax, v, name="v")
+        if save:
+            fig.savefig('p_i_v.png')
+        plt.pause(timestep)
 
-        self.__plot_bunches(fig, ax, u)
-        fig, ax = plt.subplots()
+        self.__plot_bunches(fig, ax, u, name="u")
+        if save:
+            fig.savefig('B_u.png')
+        plt.pause(timestep)
+        self.__plot_bunches(fig, ax, v, name="v")
+        if save:
+            fig.savefig('B_v.png')
+        plt.pause(timestep)
 
+        # Plot the query steps
         w = u
         i = 0
 
         self.__plot_query_state(fig, ax, u, v, w, i)
+        if save:
+            fig.savefig('iter_0.png')
         plt.pause(timestep)
 
         while w not in self.B[v]:
@@ -271,84 +314,129 @@ class PointADO(ADO):
             w = self.p[u][i][0]
 
             self.__plot_query_state(fig, ax, u, v, w, i)
+            if save:
+                fig.savefig('iter_{}.png'.format(i))
             plt.pause(timestep)
 
         self.__plot_query_state(fig, ax, u, v, w, i, final=True)
+        if save:
+            fig.savefig('iter_{}_final.png'.format(i))
 
     def __plot_A_i(self, fig: plt.Figure, ax: plt.Axes):
+        ax.cla()
 
+        colors = get_cmap("Dark2").colors
+        ax.set_prop_cycle(color=colors)
         for i, a_i in enumerate(self.A):
             ax.scatter(
                 [v.i for v in a_i],
                 [v.j for v in a_i],
-                label="A_{}".format(i)
-            )
+                s=8,
+                marker="o",
+                label="A_{}".format(i))
 
-        plt.legend()
-        #plt.show()
+        ax.set_title("Sampled sets A_i")
+        ax.legend(bbox_to_anchor=(1.05, 1.0), loc='upper left')
+        plt.tight_layout()
+        fig.show()
 
-    def __plot_p_i(self, fig: plt.Figure, ax: plt.Axes, u: FiniteMetricVertex):
+    def __plot_p_i(self, fig: plt.Figure, ax: plt.Axes,
+                   point: FiniteMetricVertex, name: str = "u"):
 
-        # Plot all the points in the graph
+        ax.cla()
+
+        # Plot all points and color by set A_i
         for i, a_i in enumerate(self.A):
             ax.scatter(
                 [v.i for v in a_i],
                 [v.j for v in a_i],
+                s=8,
+                marker="o",
                 label="A_{}".format(i)
             )
 
-        ax.scatter([u.i], [u.j], color='red', label='u')
+        # Plot and label the point itself
+        ax.scatter([point.i], [point.j],
+                   s=12,
+                   color="red",
+                   marker="*",
+                   label=name)
+        ax.annotate(name, (point.i, point.j), color="red")
 
-        for i, p_i in self.p[u].items():
-            if p_i[0] is None:
+        # Force the xlim and ylim to become fixed
+        ax.set_xlim(*ax.get_xlim())
+        ax.set_ylim(*ax.get_ylim())
+
+        # For the current point, mark and label its p_i s
+        # and add circles
+        p_i = [self.p[point][i] for i in range(self.k)]
+        for i in range(1, self.k):
+            if p_i[i] is None:
                 continue
-
-            w = p_i[0]
-            d = p_i[1]
-
-            ax.scatter([w.i], [w.j], label='p_{}(u)'.format(i))
-
-            circ = plt.Circle((u.i, u.j), d, fill=False)
-
+            ax.annotate("p_{}({})".format(i, name), (p_i[i][0].i, p_i[i][
+                0].j),
+                        xytext=(5, 5),
+                        textcoords="offset pixels",
+                        color="violet")
+            circ = plt.Circle((point.i, point.j), p_i[i][1], fill=False)
             ax.add_patch(circ)
 
-        plt.legend()
-        #plt.show()
+        ax.set_title("Witnesses p_i({}) and rings.".format(name))
+        ax.legend(bbox_to_anchor=(1.05, 1.0), loc='upper left')
+        plt.tight_layout()
+        fig.show()
 
-    def __plot_bunches(self, fig: plt.Figure, ax: plt.Axes, u: FiniteMetricVertex):
-        # Plot all the points in the graph
-        for i, a_i in enumerate(self.A):
-            ax.scatter(
-                [v.i for v in a_i],
-                [v.j for v in a_i],
-                label="A_{}".format(i)
-            )
+    def __plot_bunches(self, fig: plt.Figure, ax: plt.Axes,
+                       point: FiniteMetricVertex, name: str = "u"):
+        ax.cla()
 
-        ax.scatter([u.i], [u.j], color='red', label='u')
+        # Plot all points and color by set A_i
+        ax.scatter([v.i for v in self.vertices],
+                   [v.j for v in self.vertices],
+                   s=4,
+                   color="black",
+                   marker=".",
+                   label="Points")
 
-        for i, p_i in self.p[u].items():
-            if p_i[0] is None:
+        # Plot and label the point itself
+        ax.scatter([point.i], [point.j],
+                   s=12,
+                   color="red",
+                   marker="*",
+                   label=name)
+        ax.annotate(name, (point.i, point.j), color="red")
+
+        # Force the xlim and ylim to become fixed
+        ax.set_xlim(*ax.get_xlim())
+        ax.set_ylim(*ax.get_ylim())
+
+        # For the current point, mark and label its p_i s
+        # and add circles
+        p_i = [self.p[point][i] for i in range(self.k)]
+        for i in range(1, self.k):
+            if p_i[i] is None:
                 continue
-
-            w = p_i[0]
-            d = p_i[1]
-
-            ax.scatter([w.i], [w.j], label='p_{}(u)'.format(i))
-
-            circ = plt.Circle((u.i, u.j), d, fill=False)
-
+            ax.annotate("p_{}({})".format(i, name), (p_i[i][0].i, p_i[i][
+                0].j),
+                        xytext=(5, 5),
+                        textcoords="offset pixels",
+                        color="violet")
+            circ = plt.Circle((point.i, point.j), p_i[i][1], fill=False)
             ax.add_patch(circ)
 
+        # Plot the points in the bunch
+        B = [w for w in self.B[point]]
+        ax.scatter([w.i for w in B],
+                   [w.j for w in B],
+                   s=12,
+                   color="lime",
+                   marker="*",
+                   label="B({})".format(name))
 
-        ax.scatter(
-            [v.i for v in self.B[u]],
-            [v.j for v in self.B[u]],
-            label='B(u)', color='black'
-        )
-
-        plt.legend()
-        plt.show()
-
+        ax.set_title("Bunch B({})".format(name))
+        ax.legend(bbox_to_anchor=(1.05, 1.0), loc='upper left')
+        plt.tight_layout()
+        fig.show()
 
     def __plot_query_state(self, fig: plt.Figure,
                            ax: plt.Axes,
@@ -449,26 +537,25 @@ def sample_random_real_points(num_vertices: int,
     Construct a graph with num_vertices points by sampling each point
     uniformly from the provided range of x and y values.
 
-    :param num_vertices: The number of vertices to place in the graph.
+    :param num_vertices: The number of vertices (points) to sample.
     :param x_range: The range (low, high) of x coordinates to sample
     points from.
     :param y_range: The range (low, high) of y coordinates to sample
     points from.
     :param seed: The random seed to use for generating the data.
 
-    :return: A Graph object containing num_vertices random points,
-    with the corresponding distance matrix constructed internally.
+    :return: A list of num_vertices random points as FiniteMetricVertex objects,
+    which can be passed as an input to a PointADO instance.
     """
     random.seed(seed)
     np.random.seed(seed)
 
-    x_coords = [random.uniform(x_range[0], x_range[1]) for _ in range(
-        num_vertices)]
-    y_coords = [random.uniform(y_range[0], y_range[1]) for _ in range(
-        num_vertices)]
-    random_vertices = [FiniteMetricVertex(i, j, idx=n) for n, (i,
-                                                               j) in enumerate(
-        zip(x_coords, y_coords))]
+    x_coords = [random.uniform(x_range[0], x_range[1])
+                for _ in range(num_vertices)]
+    y_coords = [random.uniform(y_range[0], y_range[1])
+                for _ in range(num_vertices)]
+    random_vertices = [FiniteMetricVertex(i, j, idx=n)
+                       for n, (i, j) in enumerate(zip(x_coords, y_coords))]
 
     return random_vertices
 
@@ -478,6 +565,9 @@ if __name__ == "__main__":
         num_vertices=250,
         x_range=(-50, 50),
         y_range=(-50, 50),
-        seed=1)
-    point_ado = PointADO(points, 5)
-    point_ado.animate_query(point_ado.vertices[0], point_ado.vertices[10])
+        seed=0)
+    point_ado = PointADO(points, 5, seed=6)
+    query_points = random.sample(point_ado.vertices, 2)
+    point_ado.animate_query(query_points[0], query_points[1],
+                            save=True,
+                            timestep=0.1)
