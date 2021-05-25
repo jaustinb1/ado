@@ -223,12 +223,19 @@ class GraphADO(ADO):
             else:
                 delta_A_i_plus_1_v = {v: p_dict[v][i + 1][1] for v in p_dict}
 
-            # Compute the distances from A_i to each other vertex v
-            distances, paths = nx.multi_source_dijkstra(self.g,
-                                                        set(v.nx_node
-                                                            for
-                                                            v in
-                                                            self.A[i]))
+            # Compute the distances from A_i to each other vertex v.
+            # Use the trick from the paper where we add a dummy node with
+            # zero-weight edges to every vertex in A_i, then compute the
+            # distances with respect to that vertex.
+            self.g.add_node("s")
+            self.g.add_weighted_edges_from([("s", v.nx_node, 0.0) for v in
+                                            self.A[i]])
+
+            distances, paths = nx.single_source_dijkstra(self.g,
+                                                         source="s",
+                                                         weight="weight")
+
+            self.g.remove_node("s")  # Remove temporary node
 
             # Compute distances and our witnesses p_i_v
             for v in self.vertices:
@@ -238,7 +245,7 @@ class GraphADO(ADO):
                 if delta_A_i_plus_1_v[v] == delta_A_i_v:
                     p_i_v = p_dict[v][i + 1][0]
                 else:
-                    p_i_v = self._nx_node_to_vertex[paths[v.nx_node][0]]
+                    p_i_v = self._nx_node_to_vertex[paths[v.nx_node][1]]
 
                 assert p_i_v in self.A[i]
 
@@ -283,7 +290,9 @@ class GraphADO(ADO):
 
         return bunches
 
-    def __get_path(self, u: Vertex, v: Vertex, w: Vertex) -> List[Vertex]:
+    def __get_path(self,
+                   u: GraphVertex, v: GraphVertex,
+                   w: GraphVertex) -> List[GraphVertex]:
         """
         Given the source and target vertices (u and v) and the final w vertex
         computed by the query algorithm, construct and return the corresponding
@@ -326,7 +335,8 @@ class GraphADO(ADO):
         assert path[0] == u and path[-1] == v and w in path
         return path
 
-    def query_for_path(self, u: Vertex, v: Vertex) -> List[Vertex]:
+    def query_for_path(self, u: GraphVertex,
+                       v: GraphVertex) -> List[GraphVertex]:
         """
         Query the ADO for two points and return the approximate shortest path
         between them as a list of Vertices.
@@ -420,7 +430,8 @@ class GraphADO(ADO):
         if final:
             path = self.__get_path(u, v, w)
             path_edges = set(
-                (path[i], path[i + 1]) for i in range(len(path) - 1))
+                (path[i].nx_node, path[i + 1].nx_node) for i in range(len(
+                    path) - 1))
             edge_colors = ["lime"
                            if (u, v) in path_edges or (v, u) in path_edges
                            else "black"
