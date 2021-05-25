@@ -16,13 +16,15 @@ class Vertex(ABC):
     real space or a node in a graph.
     """
 
+    def __init__(self, idx: Optional[int] = None):
+        self._idx = idx
+
     @property
-    @abstractmethod
     def idx(self):
         """
         Index of the point in its enclosing graph to uniquely identify it.
         """
-        pass
+        return self._idx
 
     @abstractmethod
     def __repr__(self):
@@ -43,16 +45,12 @@ class FiniteMetricVertex(Vertex):
         point is sampled from.
         :param idx: (Optional) Index of the point in the graph for bookkeeping.
         """
+        super().__init__(idx)
         self.i = np.random.normal(loc=i, scale=stddev)
         self.j = np.random.normal(loc=j, scale=stddev)
-        self._idx = idx
 
     def __repr__(self) -> str:
         return "({},{})".format(self.i, self.j)
-
-    @property
-    def idx(self):
-        return self._idx
 
 
 class ADO(ABC):
@@ -69,7 +67,7 @@ class ADO(ABC):
         self.A = None
         self.p = None
         self.B = None
-        self.n = None
+
         self.k = k
         self.seed = seed
         if self.seed:
@@ -80,6 +78,10 @@ class ADO(ABC):
     def vertices(self):
         pass
 
+    @property
+    def n(self):
+        return len(self.vertices)
+
     def preprocess(self) -> None:
         """
         Do all preprocessing on the graph to answer queries.
@@ -89,9 +91,9 @@ class ADO(ABC):
         """
 
         # Sample k + 1 sets A_0 through A_k
-        A_sets = self.__sample_A_sets()
+        A_sets = self.sample_A_sets()
         while not A_sets[self.k - 1]:  # If A_{k-1} is empty, re-sample
-            A_sets = self.__sample_A_sets()
+            A_sets = self.sample_A_sets()
         self.A = A_sets
 
         # Compute distances between each point and each set A_i, saving
@@ -101,7 +103,7 @@ class ADO(ABC):
         # Compute a bunch and associated distance table for each vertex
         self.B = self.compute_bunches()
 
-    def __sample_A_sets(self) -> List[Set[Vertex]]:
+    def sample_A_sets(self) -> List[Set[Vertex]]:
         """
         Constructs k+1 sets A_0 through A_k by repeated sampling with
         probability n^{-1/k} from the previous set. Note that A_0 = V and A_k
@@ -113,7 +115,8 @@ class ADO(ABC):
         # Add set A_0 = V
         A_sets = [set(self.vertices)]
 
-        # Add sets A_1 through A_{k-1} by sampling
+        # Add sets A_1 through A_{k-1} by sampling from the previous
+        # set with probability n^{-1/k} for each vertex.
         for _ in range(1, self.k):
             # If we are seeding, we fix the order of set iteration by sorting
             # and then shuffling. This ensures that the entire sampling process
@@ -137,11 +140,29 @@ class ADO(ABC):
     @abstractmethod
     def compute_p(self) -> DefaultDict[Vertex, Dict[int, Tuple[Vertex,
                                                                float]]]:
+        """
+        Computes the distance from each vertex v to each set A_i, and notes
+        the nearest point in A_i to v (p_i(v)).
+
+        :return: A dictionary mapping from a Vertex v to a dictionary, which
+        in turn maps from an index i (from 0 to k) corresponding to a set A_i to
+        a tuple of (p_i(v), distance(v, A_i)).
+        """
         pass
 
     @abstractmethod
     def compute_bunches(self) -> DefaultDict[Vertex, Dict[Vertex,
                                                           float]]:
+        """
+        Computes the bunch B(v) associated with each vertex v and for each
+        vertex w in the bunch saves the distance from v to w in a
+        dictionary/lookup table.
+
+        :return: A dictionary mapping from a Vertex v to its associated bunch
+        B(v), which is represented as a dictionary where the keys are each of
+        the vertices w in B(v) and the values are the corresponding distances
+        distance(v, w).
+        """
         pass
 
     def query(self,
@@ -169,10 +190,7 @@ class ADO(ABC):
 
         distance = self.B[u][w] + self.B[v][w]
 
-        if return_w:
-            return distance, w
-        else:
-            return distance
+        return (distance, w) if return_w else distance
 
 
 class PointADO(ADO):
@@ -191,7 +209,6 @@ class PointADO(ADO):
         """
         super().__init__(k=k, seed=seed)
         self._vertices = vertices
-        self.n = len(self.vertices)
 
         # Preprocess and construct A, p, B
         self.preprocess()
@@ -207,14 +224,6 @@ class PointADO(ADO):
     def compute_p(self) -> DefaultDict[Vertex,
                                        Dict[int, Tuple[Vertex,
                                                        float]]]:
-        """
-        Computes the distance from each vertex v to each set A_i, and notes
-        the nearest point in A_i to v (p_i(v)).
-
-        :return: A dictionary mapping from a Vertex v to a dictionary, which
-        in turn maps from an index i (from 0 to k) corresponding to a set A_i to
-        a tuple of (p_i(v), distance(v, A_i)).
-        """
         p_dict = defaultdict(dict)
 
         # Compute minimum distance from every point v to every set A_i
@@ -236,16 +245,6 @@ class PointADO(ADO):
 
     def compute_bunches(self) -> DefaultDict[Vertex, Dict[Vertex,
                                                           float]]:
-        """
-        Computes the bunch B(v) associated with each vertex v and for each
-        vertex w in the bunch saves the distance from v to w in a
-        dictionary/lookup table.
-
-        :return: A dictionary mapping from a Vertex v to its associated bunch
-        B(v), which is represented as a dictionary where the keys are each of
-        the vertices w in B(v) and the values are the corresponding distances
-        distance(v, w).
-        """
         bunches = defaultdict(dict)
         for v in self.vertices:
             for i in range(self.k):
@@ -259,8 +258,7 @@ class PointADO(ADO):
 
     def animate_query(self, u: FiniteMetricVertex,
                       v: FiniteMetricVertex, timestep: float = 2.0,
-                      save: bool = False) -> \
-            None:
+                      save: bool = False) -> None:
         """
         Query the ADO for the estimated distance between two vertices u and v
         and animate/plot the process with pyplot.
@@ -268,6 +266,7 @@ class PointADO(ADO):
         :param u: A vertex in the ADO's graph self.g
         :param v: A different vertex in the ADO's graph self.g
         :param timestep: The timestep between frames in the animation
+        :param save: If true, saves each of the generated images as PNGs.
         """
         # Check that the vertices are actually from this graph
         assert self.vertices[u.idx] == u and self.vertices[v.idx] == v, \
@@ -322,7 +321,13 @@ class PointADO(ADO):
         if save:
             fig.savefig('iter_{}_final.png'.format(i))
 
-    def __plot_A_i(self, fig: plt.Figure, ax: plt.Axes):
+    def __plot_A_i(self, fig: plt.Figure, ax: plt.Axes) -> None:
+        """
+        Plot all points and highlight the sampled sets A_i.
+
+        :param fig: The matplotlib figure to plot on.
+        :param ax: The matplotlib axes to plot on.
+        """
         ax.cla()
 
         colors = get_cmap("Dark2").colors
@@ -341,8 +346,16 @@ class PointADO(ADO):
         fig.show()
 
     def __plot_p_i(self, fig: plt.Figure, ax: plt.Axes,
-                   point: FiniteMetricVertex, name: str = "u"):
+                   point: FiniteMetricVertex, name: str = "u") -> None:
+        """
+        Plot all points and highlight the witnesses p_i for the given point
+        along with corresponding rings on the given figure and axes.
 
+        :param fig: The matplotlib figure to plot on.
+        :param ax: The matplotlib axes to plot on.
+        :param point: The vertex whose witnesses/rings we wish to plot.
+        :param name: The name to use to label the vertex/bunches.
+        """
         ax.cla()
 
         # Plot all points and color by set A_i
@@ -387,7 +400,16 @@ class PointADO(ADO):
         fig.show()
 
     def __plot_bunches(self, fig: plt.Figure, ax: plt.Axes,
-                       point: FiniteMetricVertex, name: str = "u"):
+                       point: FiniteMetricVertex, name: str = "u") -> None:
+        """
+        Plot all points and highlight the bunches for the given point on
+        the provided figure/axes.
+
+        :param fig: The matplotlib figure to plot on.
+        :param ax: The matplotlib axes to plot on.
+        :param point: The vertex whose bunches we wish to plot.
+        :param name: The name to use to label the vertex/bunches.
+        """
         ax.cla()
 
         # Plot all points and color by set A_i
@@ -570,4 +592,4 @@ if __name__ == "__main__":
     query_points = random.sample(point_ado.vertices, 2)
     point_ado.animate_query(query_points[0], query_points[1],
                             save=True,
-                            timestep=0.1)
+                            timestep=2.0)

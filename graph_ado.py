@@ -12,7 +12,9 @@ from ado import Vertex, ADO
 
 class GraphVertex(Vertex):
     """
-    A representation of a graph node.
+    A representation of a graph node. Essentially a wrapper around a NetworkX
+    graph node object, with the addition of an index identifying the node in
+    the graph.
     """
 
     def __init__(self, n: Any, idx: Optional[int] = None):
@@ -20,28 +22,39 @@ class GraphVertex(Vertex):
         :param n: The corresponding NetworkX node identifier.
         :param idx: (Optional) Index of the point in the graph for bookkeeping
         """
+        super().__init__(idx)
         self.nx_node = n
-        self._idx = idx
-
-    @property
-    def idx(self):
-        return self._idx
 
     def __repr__(self) -> str:
         return "(idx={}, nx_node={})".format(self.idx, self.nx_node)
 
 
 class GraphADO(ADO):
+    """
+    An implementation of the ADO algorithm/data structure on an undirected,
+    weighted graph.
+    """
+
     def __init__(self, k: int, graph: nx.Graph):
+        """
+        :param k: The stretch parameter for the ADO algorithm.
+        :param graph: A NetworkX graph to apply the ADO algorithm to.
+        """
         super().__init__(k)
         self.g = graph
+
+        # Get all vertices from the NetworkX graph and wrap them as
+        # Vertex objects to provide a uniform interface with the non-graph
+        # ADO version.
         self._vertices = [GraphVertex(n=nx_node, idx=i) for i, nx_node in
                           enumerate(
                               self.g.nodes)]
+        # Add a mapping from each NetworkX node to its corresponding Vertex
+        # for easy translation back and forth.
         self._nx_node_to_vertex = {v.nx_node: v for v in self._vertices}
 
+        # The clusters used for calculating the bunches in the ADO algorithm.
         self.C = None
-        self.n = len(self._vertices)
 
         self.preprocess()
 
@@ -50,6 +63,10 @@ class GraphADO(ADO):
         return self._vertices
 
     def distance(self, u: GraphVertex, v: GraphVertex):
+        """
+        Get the (weighted) distance between two vertices from the NetworkX
+        graph.
+        """
         return self.g[u.nx_node][v.nx_node]['weight']
 
     def __custom_dijkstras(self,
@@ -59,14 +76,40 @@ class GraphADO(ADO):
         Dict[GraphVertex, int],
         Dict[GraphVertex, List[GraphVertex]]
     ]:
+        """
+        An helper implementation of the modified Dijkstra's single-source
+        shortest paths algorithm used as a subroutine of the graph ADO
+        pre-processing.
 
-        def backtrace(prev, start, end):
-            # TODO: Add comment here
+        The modification is that we only relax the distances of nodes on the
+        frontier if the new distance is shorter than the distance to A_{i+1}.
+
+        :param graph: The NetworkX graph that the algorithm computes the
+        distances for.
+        :param source: The source Vertex, which must be in the graph.
+        :param A_i_plus_1_dists: A dictionary of distances from each node to
+        the set A_{i+1}.
+        :return: A tuple consisting of: a distance dictionary mapping from each
+        vertex to its distance from the source, and a path dictionary of the
+        shortest path from the source to each vertex. Note that both the
+        distance and path dictionaries only contain keys for vertices which
+        satisfy the custom condition that they are closer to the source than
+        to A_{i+1}.
+        """
+
+        def backtrace(prev: Dict[GraphVertex, GraphVertex],
+                      start: GraphVertex,
+                      end: GraphVertex) -> List[GraphVertex]:
             """
-            :param prev:
-            :param start:
-            :param end:
-            :return:
+            Follows the saved backpointers in the prev dictionary to reconstruct
+            the shortest distance path from start to end.
+
+            :param prev: A dictionary of backpointers mapping from every vertex
+            to its parent along the shortest path from the source.
+            :param start: The start vertex of the path.
+            :param end: The end vertex of the path.
+            :return: The shortest path found by the custom Dijkstra's algorithm
+            as a list of GraphVertices.
             """
             node = end
             path = []
@@ -77,10 +120,10 @@ class GraphADO(ADO):
             path.reverse()
             return path
 
-        # TODO: Clean this up
-        # Priority queue operations.
-        # See:
-        # https://docs.python.org/3/library/heapq.html#priority-queue-implementation-notes
+        # Priority queue operations, from the Python documentation recommended
+        # implementation.
+        # See https://docs.python.org/3/library/heapq.html#priority-queue
+        # -implementation-notes
         frontier = []
         heap_nodes = {}
         REMOVED = '<removed>'  # marker for a removed entry
@@ -88,7 +131,9 @@ class GraphADO(ADO):
         counter = itertools.count()
 
         def pq_push(pq, node, priority):
-            """Add a new entry or update the priority of an existing entry. """
+            """
+            Add a new entry or update the priority of an existing entry.
+            """
             if node in heap_nodes:
                 pq_remove(node)
             count = next(counter)
@@ -97,7 +142,8 @@ class GraphADO(ADO):
             heappush(pq, entry)
 
         def pq_remove(node):
-            """Mark an existing entry as REMOVED.
+            """
+            Mark an existing entry as REMOVED.
             Raise KeyError if not found.
             """
             entry = heap_nodes.pop(node)
@@ -113,10 +159,11 @@ class GraphADO(ADO):
                 if node is not REMOVED:
                     del heap_nodes[node]
                     return priority, node
-            raise KeyError('pop from an empty priority queue')
+            raise KeyError('Pop from an empty priority queue.')
+
+        # Setup for Dijkstra's algorithm
 
         distances = defaultdict(lambda: float("inf"))
-
         prev_node = {}
         seen = set()
 
@@ -124,6 +171,7 @@ class GraphADO(ADO):
         for v in self.vertices:
             pq_push(frontier, v, distances[v])
 
+        # Dijkstra's algorithm
         while heap_nodes:
             current_distance, u = pq_pop(frontier)
             if u in seen:
@@ -142,8 +190,8 @@ class GraphADO(ADO):
                         A_i_plus_1_dists[v]:
                     distances[v] = dist_through_u
                     prev_node[v] = u
-                    # Update the distance to this node in the priority
-                    # queue
+                    # Update the existing entry in the priority queue
+                    # with the new distance
                     pq_push(frontier, v, distances[v])
 
         # Get only points with finite distances and reconstruct paths
@@ -236,9 +284,16 @@ class GraphADO(ADO):
         return bunches
 
     def __get_path(self, u: Vertex, v: Vertex, w: Vertex) -> List[Vertex]:
+        """
+        Given the source and target vertices (u and v) and the final w vertex
+        computed by the query algorithm, construct and return the corresponding
+        approximate shortest path between u and v as a list of Vertices.
+        """
         path_u_to_w = list(reversed(self.C[w][u][1]))
         path_v_to_w = list(reversed(self.C[w][v][1]))
 
+        # Find the least common ancestor along the two paths (it could be
+        # a vertex before w, or it could be w).
         if len(path_u_to_w) <= len(path_v_to_w):
             shorter = path_u_to_w
             longer = path_v_to_w
@@ -259,16 +314,23 @@ class GraphADO(ADO):
                 break
             i += 1
 
+        # Then construct the final path as (u to lca) + (lca to v)
         assert lca is not None
-        path = longer[:i + 1] + shorter[:j:-1]
+        path = longer[:i + 1] + shorter[j - 1::-1]
 
+        # Depending on which part of the path is shorter, we may need to
+        # reverse the order
         if path[0] == v:
             path.reverse()
 
-        #assert path[0] == u and path[-1] == v and w in path
+        assert path[0] == u and path[-1] == v and w in path
         return path
 
     def query_for_path(self, u: Vertex, v: Vertex) -> List[Vertex]:
+        """
+        Query the ADO for two points and return the approximate shortest path
+        between them as a list of Vertices.
+        """
         _, w = self.query(u, v, return_w=True)
         return self.__get_path(u, v, w)
 
@@ -294,7 +356,6 @@ class GraphADO(ADO):
         self.__plot_query_state(fig, ax, u, v, w, i)
         plt.pause(timestep)
 
-
         while w not in self.B[v]:
             i += 1
             u, v = v, u
@@ -304,7 +365,6 @@ class GraphADO(ADO):
             plt.pause(timestep)
 
         self.__plot_query_state(fig, ax, u, v, w, i, final=True)
-
 
     def __plot_query_state(self,
                            fig: plt.Figure,
@@ -390,10 +450,24 @@ def generate_random_weighted_2d_grid_graph(m: int = 5, n: int = 5,
                                            max_weight: int = 1,
                                            randomize_weights: bool = True,
                                            seed: int = 1) -> nx.Graph:
+    """
+    :param m: The number of rows in the grid graph.
+    :param n: The number of columns in the grid graph.
+    :param min_weight: The minimum weight of the uniform weight distribution
+    to sample each edge's weight from.
+    :param max_weight: The maximum weight of the uniform weight distribution
+    to sample each edge's weight from.
+    :param randomize_weights: If true, sample the weights from the uniform
+    distribution over the range (min_weight, max_weight). If false,
+    then min_weight and max_weight must be equal, and every edge's weight is
+    set to that value.
+    :param seed: The random seed used for the edge weight sampling.
+    :return: The fully constructed NetworkX graph.
+    """
     random.seed(seed)
 
-    graph = nx.grid_2d_graph(m, n)
-    for (u, v, d) in graph.edges(data=True):
+    grid_graph = nx.grid_2d_graph(m, n)
+    for (u, v, d) in grid_graph.edges(data=True):
         if randomize_weights:
             weight = random.randint(min_weight, max_weight)
         else:
@@ -403,10 +477,11 @@ def generate_random_weighted_2d_grid_graph(m: int = 5, n: int = 5,
             weight = min_weight
         d['weight'] = weight
 
-    return graph
+    return grid_graph
 
 
 if __name__ == "__main__":
-    graph = generate_random_weighted_2d_grid_graph(seed=1)
-    graph_ado = GraphADO(k=5, graph=graph)
-    graph_ado.animate_query(graph_ado.vertices[0], graph_ado.vertices[24])
+    test_graph = generate_random_weighted_2d_grid_graph(seed=1)
+    graph_ado = GraphADO(k=5, graph=test_graph)
+    query_points = random.sample(graph_ado.vertices, 2)
+    graph_ado.animate_query(query_points[0], query_points[1])
