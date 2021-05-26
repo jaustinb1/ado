@@ -239,9 +239,9 @@ class GraphADO(ADO):
             dijkstra = nk.distance.Dijkstra(self.g, n) #, target=n)
             dijkstra.run()
             distances = dijkstra.getDistances()
-            paths = []
-            for t in self.g.iterNodes():
-                paths.append(dijkstra.getPath(t))
+            #paths = []
+            #for t in self.g.iterNodes():
+            #    paths.append(dijkstra.getPath(t))
             paths = [dijkstra.getPath(t) for t in self.g.iterNodes()]
             #distances, paths = nx.single_source_dijkstra(self.g,
             #                                             source="s",
@@ -268,22 +268,38 @@ class GraphADO(ADO):
             # trees T(w) in the form of a saved shortest path from each
             # w to each vertex in C(w)
             start = time.time()
+            dijkstra = nk.distance.Dijkstra(self.g, 0, storePaths=True,
+                                            a_i_v_plus_1={k.nx_node: delta_A_i_plus_1_v[k] for k in delta_A_i_plus_1_v})
             for w in self.differences[i]: #self.A[i].difference(self.A[i + 1]):
                 # Do a modified Dijkstra's with the stricter relaxation
                 # condition
                 # This will give distances to all points in the cluster C(w)
                 # and can also be modified to give the tree (paths).
-                #s = time.time()
-                C_distances, C_paths = self.__custom_dijkstras(
-                    self.g,
-                    w,
-                    delta_A_i_plus_1_v
-                )
+                s = time.time()
+
+                dijkstra.setSource(w.nx_node)
+
+                dijkstra.run()
+                C_distances = dijkstra.getDistances()
+
+                C_paths = [dijkstra.getPath(t) for t in self.g.iterNodes()]
+                #print(time.time() - s)
+
+                #C_distances =
+
+                #C_distances, C_paths = self.__custom_dijkstras(
+                #    self.g,
+                #    w,
+                #    delta_A_i_plus_1_v
+                #)
+
                 self.C[w].update({
-                    v: (C_distances[v], C_paths[v]) for v in C_distances
+                    self._nx_node_to_vertex[v]: (C_distances[v], C_paths[v]) for v, d in enumerate(C_distances) if d < 1e10
                 })
                 #print(time.time() - s)
-            print("Custom", i, time.time() - start)
+
+            elapsed = time.time() - start
+            print("Custom", i, elapsed, elapsed / len(self.differences[i]))
 
         return p_dict
 
@@ -498,13 +514,21 @@ def generate_random_weighted_2d_grid_graph(m: int = 5, n: int = 5,
 
     import numpy as np
     G = nk.Graph(n, weighted=True)
-    for i in range(n):
-        for j in range(n):
-            if i >= j:
-                continue
 
-            if np.random.randn() < 1./ n:
-                G.addEdge(i, j, w=np.random.uniform(0.1, 1.0))
+    all_pairs = [(i,j) for i in range(n) for j in range(n)]
+    np.random.shuffle(all_pairs)
+
+    edges = all_pairs[:5*n]
+
+    for (i,j) in edges:
+        G.addEdge(i,j, w=np.random.uniform(1.0, 5.0))
+    #for i in range(n):
+    #    for j in range(n):
+    #        if i >= j:
+    #            continue
+
+    #        if np.random.randn() < 1./ n:
+    #            G.addEdge(i, j, w=np.random.uniform(0.1, 1.0))
 
     return G
 
@@ -526,7 +550,7 @@ def generate_random_weighted_2d_grid_graph(m: int = 5, n: int = 5,
 
 if __name__ == "__main__":
     nk.setNumberOfThreads(4) # set the maximum number of available threads
-    test_graph = generate_random_weighted_2d_grid_graph(seed=1, n=20000)
+    test_graph = generate_random_weighted_2d_grid_graph(seed=1, n=5000)
     print("here")
     graph_ado = GraphADO(k=3, graph=test_graph)
     query_points = random.sample(graph_ado.vertices, 2)
