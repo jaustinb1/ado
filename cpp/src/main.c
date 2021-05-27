@@ -1,4 +1,5 @@
 #include "main.h"
+#include "stdio.h"
 
 /*
   indicates whether the algorithms works with 1 or 0 indexed data.
@@ -211,10 +212,12 @@ struct ssp_res *run_opt_dijkstra (struct graph *graph, int u, int v, int n, int 
  * First it calls prepro, the preprocessing algorithm and then calls dist,
  * the query algorithm
  */
-struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, int query_times)
+struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, int query_times, FILE *fp)
 {
+        struct ssp_res *test = 0x0;
 	struct tz_res *tz = malloc (sizeof (struct tz_res));
 	struct prepro *pp = malloc (sizeof (struct prepro));
+        char *str_buff = calloc(100, sizeof(char));
 	clock_t begin, end;
 
 	tz->dist = 0, tz->dist_time = 0.0;
@@ -230,13 +233,24 @@ struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, i
 	tz->prepro_memory_consump = get_vm_peak();
 
 	for (int i = 0; i < tz->query_times; i++) {
+                memset(str_buff, 0x0, 10);
+                u = randombytes_uniform(graph->V);
+                v = randombytes_uniform(graph->V);
 		begin = clock();
-		tz->dist += dist (&pp->nodes[u-offset], &pp->nodes[v-offset], pp->bunchlist);
+		tz->dist = dist (&pp->nodes[u-offset], &pp->nodes[v-offset], pp->bunchlist);
 		end = clock();
 		tz->dist_time += (double)(end - begin) / CLOCKS_PER_SEC;
+
+                begin = clock();
+                test = dijkstra_opt_alg (graph, u-offset, v-offset);
+                end = clock();
+                test->dist = test->S_f[v-offset].sp_est;
+
+                sprintf(str_buff, "%d %d %d %d\n", u, v, tz->dist, test->dist);
+                fwrite(str_buff, sizeof(char), strlen(str_buff), fp);
 	}
 
-	tz->dist = tz->dist / tz->query_times;
+	tz->dist = tz->dist;
 	tz->dist_time = tz->dist_time / tz->query_times;
 	tz->dist_memory_consump += pp->bunchlist->bunch_size / 1000;
 	tz->k = k;
@@ -249,10 +263,7 @@ struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, i
 	printf ("Query algorithm is executed %d times\n", tz->query_times);
 	printf ("Memory usage of dist (bunch size) = %d KB\n", tz->dist_memory_consump);
 
-	begin = clock();
-	struct ssp_res *test = dijkstra_opt_alg (graph, u-offset, v-offset);
-	end = clock();
-	test->dist = test->S_f[v-offset].sp_est;
+
 	printf ("Result of A*(%d,%d)=%d in time %f sec\n", u, v, test->dist, ((double)(end - begin) / CLOCKS_PER_SEC));
 	return tz;
 }
@@ -291,9 +302,14 @@ int main (int argc, char *argv[])
 					help ();
 					return EXIT_FAILURE;
 				}
-				struct tz_res *tz = run_tz (graph, k, u, v, gd->n, gd->m, query_times);
+                                char *fname_results = calloc(strlen(fname_read) + 6, sizeof(char));
+                                memcpy(fname_results, fname_read, strlen(fname_read));
+                                memcpy(fname_results+strlen(fname_read), ".out", 4);
+                                FILE *fp = fopen(fname_results, "w");
+				struct tz_res *tz = run_tz (graph, k, u, v, gd->n, gd->m, query_times, fp);
 				write_to_csv (fname_write, fname_read, gd->n, gd->m, u, v,
 							  tz, NULL, NULL, NULL);
+                                fclose(fp);
 			} else if (strcmp ("dj", argv[i]) == 0) {
 				struct ssp_res *dijkstra = run_dijkstra (graph, u, v, gd->n, gd->m);
 				write_to_csv (fname_write, fname_read, gd->n, gd->m, u, v,

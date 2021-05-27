@@ -6,10 +6,15 @@ os.chdir("cpp")
 subprocess.run("make")
 
 base = "../graphs"
+
+for f in list(os.listdir(base)):
+    if f.endswith(".out"):
+        os.remove(os.path.join(base, f))
+
 all_graphs = [os.path.join(base, f) for f in os.listdir(base)]
 
 
-command_tz = "./bin/main tz {} res.csv {} {} {} 1"
+command_tz = "./bin/main tz {} res.csv {} {} {} 10"
 command_bdj = "./bin/main bdj {} res.csv {} {} {} 1"
 
 
@@ -32,5 +37,4 @@ def parse_output(out):
 for g_path in all_graphs:
     print(g_path)
     output = run_command(command_tz, g_path, 4, 1, 2)
-
     print(parse_output(output))
