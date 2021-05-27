@@ -250,7 +250,7 @@ struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, i
 	printf ("Memory usage of dist (bunch size) = %d KB\n", tz->dist_memory_consump);
 
 	begin = clock();
-	struct ssp_res *test = astar (graph, pp, u-offset, v-offset);
+	struct ssp_res *test = dijkstra_opt_alg (graph, u-offset, v-offset);
 	end = clock();
 	test->dist = test->S_f[v-offset].sp_est;
 	printf ("Result of A*(%d,%d)=%d in time %f sec\n", u, v, test->dist, ((double)(end - begin) / CLOCKS_PER_SEC));
