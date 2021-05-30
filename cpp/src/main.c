@@ -202,6 +202,28 @@ struct ssp_res *run_opt_dijkstra (struct graph *graph, int u, int v, int n, int 
 	return dijkstra;
 }
 
+struct heap *initialise_single_source_tz_ (unsigned int n)
+{
+    struct heap *heap = malloc (sizeof (struct heap));
+    // One extra slot for node s (later used for dijkstra)
+    heap->nodes = malloc ((n+1) * sizeof(struct node*));
+
+    if (heap == NULL || heap->nodes == NULL) {
+        perror ("Pointer error of heap\n");
+        exit (-1);
+    }
+
+    int val = (int) INFINITY;
+
+    for (unsigned int i = 0; i < n; i++) {
+        heap->nodes[i] = add_node (i, val, i);
+    }
+
+    heap->heap_size = n;
+
+    return heap;
+}
+
 /**
  * run_tz - wrapper function for running Thorup-Zwick
  * @graph: graph with vertices and edges
@@ -219,10 +241,13 @@ struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, i
 	struct prepro *pp = malloc (sizeof (struct prepro));
         char *str_buff = calloc(100, sizeof(char));
 	clock_t begin, end;
+	//struct heap *heap;
 
 	tz->dist = 0, tz->dist_time = 0.0;
 	tz->query_times = query_times;
 
+        //unsigned int V = graph->V;
+        //printf("%d\n", graph->V);
 	begin = clock();
 	pp->success = false;
 	while (!pp->success) {
@@ -231,24 +256,37 @@ struct tz_res *run_tz (struct graph *graph, int k, int u, int v, int n, int m, i
 	end = clock();
 	tz->prepro_time = (double)(end - begin) / CLOCKS_PER_SEC;
 	tz->prepro_memory_consump = get_vm_peak();
+        //printf("%d\n", graph->V);
 
-	for (int i = 0; i < tz->query_times; i++) {
-                memset(str_buff, 0x0, 10);
-                u = randombytes_uniform(graph->V);
-                v = randombytes_uniform(graph->V);
+        for (unsigned int uu =1 ; uu < graph->V ; uu ++ ){
+            for (unsigned int vv = uu; vv < graph->V; vv ++){
+	//for (int i = 0; i < 50; i++) {
+                memset(str_buff, 0x0, 100);
+
+                //heap = initialise_single_source_tz_ (graph->V);
+		// copy of graph to work with for current i
+		//struct graph *write_graph = copy_graph_struct (graph, heap);
+
+                //u = randombytes_uniform(graph->V);
+                //v = randombytes_uniform(graph->V);
 		begin = clock();
-		tz->dist = dist (&pp->nodes[u-offset], &pp->nodes[v-offset], pp->bunchlist);
+		tz->dist = dist (&pp->nodes[uu-offset], &pp->nodes[vv-offset], pp->bunchlist);
 		end = clock();
 		tz->dist_time += (double)(end - begin) / CLOCKS_PER_SEC;
 
                 begin = clock();
-                test = dijkstra_opt_alg (graph, u-offset, v-offset);
+                test = dijkstra_opt_alg (graph, uu-offset, vv-offset);
                 end = clock();
-                test->dist = test->S_f[v-offset].sp_est;
+                test->dist = test->S_f[vv-offset].sp_est;
 
                 sprintf(str_buff, "%d %d %d %d\n", u, v, tz->dist, test->dist);
                 fwrite(str_buff, sizeof(char), strlen(str_buff), fp);
-	}
+                fflush(fp);
+
+                //free_graph(write_graph);
+                //free_heap(heap);
+            }
+        }
 
 	tz->dist = tz->dist;
 	tz->dist_time = tz->dist_time / tz->query_times;

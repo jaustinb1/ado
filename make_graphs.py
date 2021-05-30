@@ -14,13 +14,13 @@ if os.path.exists("graphs"):
 
 generator = "./dimacs.sh"
 
-N = 1000
-n_graphs = 10
+N = 100
+n_graphs = 1000
 
 space = np.linspace(0., 1., n_graphs)
 
 
 for i in range(n_graphs):
-    subprocess.run([generator, "-n", str(N), "-d", str(space[i]), "-w", "100", "1000"])
+    subprocess.run([generator, "-n", str(N), "-d", str(space[i]), "-w", "1", "10"])
 
 shutil.move("graphs", "..")

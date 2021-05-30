@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+K = 6
+
 os.chdir("cpp")
 
 subprocess.run("make")
@@ -19,9 +21,11 @@ command_bdj = "./bin/main bdj {} res.csv {} {} {} 1"
 
 
 def run_command(cmd, g, k, u, v):
+    c = cmd.format(g,k,u,v).split(" ")
+    print(" ".join(c))
     return subprocess.run(
-        cmd.format(g,k,u,v).split(" "), capture_output=True, encoding='utf-8'
-    ).stdout
+        c, capture_output=True, encoding='utf-8'
+    )
 
 def parse_output(out):
     split = output.split("\n")
@@ -36,5 +40,7 @@ def parse_output(out):
 
 for g_path in all_graphs:
     print(g_path)
-    output = run_command(command_tz, g_path, 4, 1, 2)
-    print(parse_output(output))
+    output = run_command(command_tz, g_path, K, 1, 2)
+    #print(output.stdout)
+    print(output.stdout)
+    #print(parse_output(output))
